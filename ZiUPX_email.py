@@ -1,12 +1,11 @@
 import os
 import sys
 import requests
+import hashlib
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.align import Align
-import hashlib # Для Gravatar
 
 console = Console()
 
@@ -21,68 +20,60 @@ def print_banner():
 ███████╗██║╚██████╔╝██║     ██╔╝ ██╗
 ╚══════╝╚═╝ ╚═════╝ ╚═╝     ╚═╝  ╚═╝
 [/bold cyan]
-[bold green]   [+] ZiUPX Email Detective v1.1[/bold green]
-[bold white]   [+] Multi-Source OSINT Tool[/bold white]
+[bold green]   [+] ZiUPX Email Detective v1.2[/bold green]
+[bold white]   [+] Direct OSINT Checker[/bold white]
     """
     console.print(Align.center(banner))
     console.print("[bold yellow]═══════════════════════════════════════════════════════════[/bold yellow]\n")
 
-def check_leaks(email):
-    """Проверяет email через несколько источников"""
-    console.print(f"\n[yellow][*] Глубокий поиск утечек для {email}...[/yellow]")
-    all_leaks = []
-
-    # 1. Источник 1: XposedOrNot
-    try:
-        url = f"https://api.xposedornot.com/v1/check-email/{email}"
-        response = requests.get(url, timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-            if 'breaches' in data and data['breaches']:
-                all_leaks.extend(data['breaches'])
-    except:
-        pass
-
-    # 2. Источник 2: LeakCheck (публичный API)
-    try:
-        # LeakCheck имеет открытый API для проверки (без ключа, но с лимитами)
-        url = f"https://leakcheck.io/api/public?key=&check={email}"
-        response = requests.get(url, timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-            if data.get('success') and data.get('found'):
-                # Добавляем названия баз, если они есть
-                for source in data.get('sources', []):
-                    all_leaks.append(source.get('name', 'Неизвестная база (LeakCheck)'))
-    except:
-        pass
-
-    # Убираем дубликаты
-    return list(set(all_leaks))
-
-def check_platforms(email):
-    console.print(f"\n[yellow][*] Проверка регистраций на платформах...[/yellow]")
-    results = {}
+def check_email_direct(email):
+    console.print(f"\n[cyan][*] Прямая проверка для {email}...[/cyan]")
     
-    # GitHub
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+
+    results = {}
+
+    # 1. Проверка Gravatar (активность email)
+    email_hash = hashlib.md5(email.lower().encode()).hexdigest()
     try:
-        url = f"https://api.github.com/search/users?q={email}"
-        response = requests.get(url, timeout=3)
-        if response.status_code == 200 and response.json().get('total_count', 0) > 0:
-            results['GitHub'] = "Аккаунт найден"
-    except:
-        pass
+        r = requests.get(f"https://www.gravatar.com/avatar/{email_hash}?d=404", timeout=5, headers=headers)
+        if r.status_code == 200:
+            results["Gravatar"] = "[green]Активен (есть аватар)[/green]"
+        else:
+            results["Gravatar"] = "[red]Не найден[/red]"
+    except Exception:
+        results["Gravatar"] = "[yellow]Ошибка проверки[/yellow]"
+
+    # 2. Проверка GitHub (через публичный поиск)
+    try:
+        r = requests.get(f"https://api.github.com/search/users?q={email}", timeout=5, headers=headers)
+        if r.status_code == 200:
+            data = r.json()
+            if data.get('total_count', 0) > 0:
+                results["GitHub"] = f"[green]Найден ({data['total_count']} совпадений)[/green]"
+            else:
+                results["GitHub"] = "[red]Не найден[/red]"
+    except Exception:
+        results["GitHub"] = "[yellow]Ошибка API[/yellow]"
+
+    # Вывод результатов
+    console.print("\n")
+    if results:
+        table = Table(title="[bold green]Результаты прямой проверки[/bold green]", border_style="cyan")
+        table.add_column("Сервис", style="cyan")
+        table.add_column("Статус", style="white")
         
-    # Gravatar
-    try:
-        email_hash = hashlib.md5(email.lower().encode()).hexdigest()
-        url = f"https://www.gravatar.com/avatar/{email_hash}?d=404"
-        response = requests.get(url, timeout=3)
-        if response.status_code == 200:
-            results['Gravatar'] = "Есть аватарка (email активен)"
-    except:
-        pass
+        for service, status in results.items():
+            table.add_row(service, status)
+            
+        console.print(table)
+    else:
+        console.print("[bold red][!] Не удалось получить данные.[/bold red]")
 
-    return results
-
-# ... (функция main остается без изменений, но можно добавить вывод, если ничего не найдено)
+if __name__ == "__main__":
+    print_banner()
+    console.print("[bold cyan]Введите email для прямой проверки (например, test@example.com):[/bold cyan]")
+    email = input("> ").strip()
+    check_email_direct(email)

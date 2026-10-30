@@ -15,4 +15,7 @@ ZiUPX Recon Framework — это модульная система для раз
 ```bash
 pkg update && pkg upgrade -y
 pkg install python git -y
-git clone 
+git clone https://github.com/ziupx/ZiUPX_Email.git
+cd ZiUPX_Email
+pip install requests rich
+python ZiUPX_email.py
